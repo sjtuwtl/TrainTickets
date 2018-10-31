@@ -1,0 +1,611 @@
+/**
+* implement a container like std::map
+*/
+#ifndef SJTU_MAP_HPP
+#define SJTU_MAP_HPP
+
+// only for std::less<T>
+#include <functional>
+#include <cstddef>
+#include "utility.hpp"
+#include "exceptions.hpp"
+
+namespace sjtu {
+
+	const int B = 1, R = 4;
+	
+
+	template<
+		class Key,
+		class T,
+		class Compare = std::less<Key>
+	> class map {
+	public:
+		/**
+		* the internal type of data.
+		* it should have a default constructor, a copy constructor.
+		* You can use sjtu::map as value_type by typedef.
+		*/
+		typedef pair<const Key, T> value_type;
+		struct node {
+			value_type *value;
+			node *pnt, *ch[2];
+			int color;
+			node *prev, *succ;
+
+			node() {
+				value = NULL;
+				pnt = NULL;
+				ch[0] = ch[1] = NULL;
+				color = B;
+				prev = succ = NULL;
+			}
+			node(const value_type &_key, node *Left = NULL, node *Right = NULL, node *Pnt = NULL, int Color = B) :
+				color(Color), pnt(Pnt) {
+				ch[0] = Left; ch[1] = Right;
+				prev = succ = NULL;
+				value = new value_type(_key);
+			}
+			~node() {
+				delete value;
+			}
+		}*root, *head, *tail;
+
+		size_t curSize;
+
+		int & Color(node *p) const {
+			
+			return p == NULL ? B : p->color;
+		}
+
+		node *Copy(node *cur, node *list[], size_t &len) {
+			if (cur == NULL) return NULL;
+			node *p = new node(*cur->value, NULL, NULL, NULL, cur->color);
+			p->ch[0] = Copy(cur->ch[0], list, len);
+			list[len++] = p;
+			p->ch[1] = Copy(cur->ch[1], list, len);
+			if (p->ch[0]) p->ch[0]->pnt = p;
+			if (p->ch[1]) p->ch[1]->pnt = p;
+			return p;
+		}
+
+		void BuildSeq(node *list[], size_t len) {
+			if (!len) return;
+			for (int i = len - 1; i >= 0; i--)
+				UpdateLink(list[i], head, head->succ);
+		}
+
+		void Clear(node *cur) {
+			if (cur == NULL) return;
+			Clear(cur->ch[0]);
+			Clear(cur->ch[1]);
+			delete cur;
+		}
+
+		void MatchPntChild(node *pnt, node *child, int par) {
+			if (child) child->pnt = pnt;
+			if (par == -1) root = child;
+			else pnt->ch[par] = child;
+		}
+
+		void Rotate(node *x, bool b) {
+			node *y = x->pnt;
+			node *z = y->pnt;
+			node *son = x->ch[b];
+			MatchPntChild(z, x, z ? (z->ch[1] == y) : -1);
+			MatchPntChild(x, y, b);
+			MatchPntChild(y, son, !b);
+		}
+
+		pair<node *, bool> Find(const Key &k) const {
+			node *p = root;
+			node *f = NULL;
+			bool b = 0;
+			Compare cmp;
+
+			while (p != NULL) {
+				if (!cmp(k, p->value->first) && !cmp(p->value->first, k))
+					return { f, b };
+				f = p;
+				if (cmp(k, p->value->first)) p = p->ch[b = 0];
+				else p = p->ch[b = 1];
+			}
+			return { f, b };
+		}
+
+		void InsertFixUp(node *const p) {
+			node *x = p;
+			while (Color(x->pnt) == R) {
+				node *y = x->pnt;
+				node *z = y->pnt;
+				node *u = z->ch[z->ch[0] == y];
+				if (Color(u) == R) {
+					Color(y) = Color(u) = B;
+					Color(z) = R;
+					x = z;
+				}
+				else if ((z->ch[1] == u) == (y->ch[1] == x)) {
+					Rotate(x, y->ch[0] == x);
+					x = y;
+				}
+				else {
+					Color(y) = B;
+					Color(z) = R;
+					Rotate(y, z->ch[0] == y);
+				}
+			}
+			Color(root) = B;
+		}
+
+		void DeleteFixUp(node *const p, node *fa) {
+			node *x = p, *y = fa, *b = fa ? fa->ch[fa->ch[0] == p] : NULL;
+			while (x != root && Color(x) == B) {
+				if (Color(b) == R) {
+					Color(b) = B;
+					Color(y) = R;
+					Rotate(b, y->ch[0] == b);
+					b = y->ch[y->ch[0] == x];
+				}
+				if (Color(b->ch[0]) == B && Color(b->ch[1]) == B) {
+					Color(b) = R;
+					x = y;
+					y = x->pnt;
+					if (y) b = y->ch[y->ch[0] == x];
+				}
+				else {
+					if (Color(b->ch[y->ch[0] == x]) == B) {
+						node *tmp = b->ch[y->ch[1] == x];
+						Color(b) = R;
+						Color(tmp) = B;
+						Rotate(tmp, b->ch[0] == tmp);
+						b = y->ch[y->ch[0] == x];
+					}
+					node *tmp = b->ch[y->ch[0] == x];
+					Color(b) = Color(y);
+					Color(y) = B;
+					Color(tmp) = B;
+					Rotate(b, y->ch[0] == b);
+					x = root;
+				}
+			}
+			Color(x) = B;
+		}
+
+		node *CheckFindRes(const pair<node *, bool> &res) const {
+			node *y = res.first;
+			if (!y && !root) return NULL;
+			if (y && !y->ch[res.second]) return NULL;
+			return !y ? root : y->ch[res.second];
+		}
+
+		void UpdateLink(node *x, node *prev, node *succ) {
+			x->prev = prev;
+			x->succ = succ;
+			if (prev) prev->succ = x;
+			if (succ) succ->prev = x;
+		}
+
+		/**
+		* see BidirectionalIterator at CppReference for help.
+		*
+		* if there is anything wrong throw invalid_iterator.
+		*     like it = map.begin(); --it;
+		*       or it = map.end(); ++end();
+		*/
+		class const_iterator;
+		class iterator {
+			friend class map;
+		private:
+			node *p;
+			/**
+			* TODO add data members
+			*   just add whatever you want.
+			*/
+		public:
+			iterator() {
+				// TODO
+			}
+			iterator(const iterator &other) :p(other.p) {
+				// TODO
+			}
+			iterator(node *P) :p(P) {}
+			/**
+			* return a new iterator which pointer n-next elements
+			*   even if there are not enough elements, just return the answer.
+			* as well as operator-
+			*/
+			/**
+			* TODO iter++
+			*/
+			iterator operator++(int) {
+				if (p->succ == NULL) throw invalid_iterator{};
+				iterator tmp(*this);
+				p = p->succ;
+				return tmp;
+			}
+			/**
+			* TODO ++iter
+			*/
+			iterator & operator++() {
+				if (p->succ == NULL) throw invalid_iterator{};
+				p = p->succ;
+				return *this;
+			}
+			/**
+			* TODO iter--
+			*/
+			iterator operator--(int) {
+				if (p->prev->prev == NULL) throw invalid_iterator{};
+				iterator tmp(*this);
+				p = p->prev;
+				return tmp;
+			}
+			/**
+			* TODO --iter
+			*/
+			iterator & operator--() {
+				if (p->prev->prev == NULL) throw invalid_iterator{};
+				p = p->prev;
+				return *this;
+			}
+			/**
+			* a operator to check whether two iterators are same (pointing to the same memory).
+			*/
+			value_type & operator*() const {
+				return *(p->value);
+			}
+			bool operator==(const iterator &rhs) const {
+				return p == rhs.p;
+			}
+			bool operator==(const const_iterator &rhs) const {
+				return p == rhs.p;
+			}
+			/**
+			* some other operator for iterator.
+			*/
+			bool operator!=(const iterator &rhs) const {
+				return p != rhs.p;
+			}
+			bool operator!=(const const_iterator &rhs) const {
+				return p != rhs.p;
+			}
+
+			/**
+			* for the support of it->first.
+			* See <http://kelvinh.github.io/blog/2013/11/20/overloading-of-member-access-operator-dash-greater-than-symbol-in-cpp/> for help.
+			*/
+			value_type* operator->() const noexcept {
+				return p->value;
+			}
+		};
+		class const_iterator {
+			// it should has similar member method as iterator.
+			//  and it should be able to construct from an iterator.
+			friend class map;
+		private:
+			node *p;
+			// data members.
+		public:
+			const_iterator() {
+				// TODO
+			}
+			const_iterator(node *pp) :p(pp) {}
+			const_iterator(const const_iterator &other) :p(other.p) {
+				// TODO
+			}
+			const_iterator(const iterator &other) :p(other.p) {
+				// TODO
+			}
+			const_iterator operator ++ (int) {
+				if (p->succ == NULL) throw invalid_iterator{};
+				const_iterator tmp(*this);
+				p = p->succ;
+				return tmp;
+			}
+			const_iterator &operator ++ () {
+				if (p->succ == NULL) throw invalid_iterator{};
+				p = p->succ;
+				return *this;
+			}
+			const_iterator operator -- (int) {
+				if (p->prev->prev == NULL) throw invalid_iterator{};
+				const_iterator tmp(*this);
+				p = p->prev;
+				return tmp;
+			}
+			const_iterator &operator -- () {
+				if (p->prev->prev == NULL) throw invalid_iterator{};
+				p = p->prev;
+				return *this;
+			}
+			const value_type &operator * () const {
+				return *(p->value);
+			}
+			bool operator == (const iterator &rhs) const {
+				return p == rhs.p;
+			}
+			bool operator == (const const_iterator &rhs) const {
+				return p == rhs.p;
+			}
+			bool operator != (const iterator &rhs) const {
+				return p != rhs.p;
+			}
+			bool operator != (const const_iterator &rhs) const {
+				return p != rhs.p;
+			}
+			const value_type *operator -> () const noexcept {
+				return p->value;
+			}
+			// And other methods in iterator.
+			// And other methods in iterator.
+			// And other methods in iterator.
+		};
+		/**
+		* TODO two constructors
+		*/
+		map() {
+			root = NULL;
+			head = new node;
+			tail = new node;
+			head->succ = tail;
+			tail->prev = head;
+			curSize = 0;
+		}
+		map(const map &other) {
+			node **list = new node *[other.size()];
+			curSize = 0;
+			root = Copy(other.root, list, curSize);
+			head = new node;
+			tail = new node;
+			head->succ = tail;
+			tail->prev = head;
+			BuildSeq(list, curSize);
+			delete[] list;
+		}
+		/**
+		* TODO assignment operator
+		*/
+		map & operator=(const map &other) {
+			if (this == &other) return *this;
+
+			node **list = new node *[other.size()];
+			Clear(root); root = NULL;
+			head->succ = tail;
+			tail->prev = head;
+
+			root = Copy(other.root, list, curSize);
+			BuildSeq(list, curSize);
+			delete[] list;
+		}
+		/**
+		* TODO Destructors
+		*/
+		~map() {
+			Clear(root);
+			delete head;
+			delete tail;
+		}
+		/**
+		* TODO
+		* access specified element with bounds checking
+		* Returns a reference to the mapped value of the element with key equivalent to key.
+		* If no such element exists, an exception of type `index_out_of_bound'
+		*/
+		T & at(const Key &key) {
+			auto res = Find(key);
+			node *x;
+			if (x = CheckFindRes(res)) return x->value->second;
+			else throw index_out_of_bound{};
+		}
+		const T & at(const Key &key) const {
+			auto res = Find(key);
+			node *x;
+			if (x = CheckFindRes(res)) return x->value->second;
+			else throw index_out_of_bound{};
+		}
+		/**
+		* TODO
+		* access specified element
+		* Returns a reference to the value that is mapped to a key equivalent to key,
+		*   performing an insertion if such key does not already exist.
+		*/
+		T & operator[](const Key &key) {
+			auto p = Find(key);
+			node *y = p.first, *x;
+			bool b = p.second;
+
+			if (x = CheckFindRes(p)) return x->value->second;
+			else {
+
+				++curSize;
+				value_type v(key);
+
+				x = new node(v, NULL, NULL, y, R);
+				if (y == NULL) {
+					root = x;
+					UpdateLink(x, head, tail);
+				}
+				else {
+					y->ch[b] = x;
+					if (!b) {
+						UpdateLink(x, y->prev, y);
+					}
+					else {
+						UpdateLink(x, y, y->succ);
+					}
+				}
+
+				InsertFixUp(x);
+				return x->value->second;
+			}
+		}
+		/**
+		* behave like at() throw index_out_of_bound if such key does not exist.
+		*/
+		const T & operator[](const Key &key) const {
+			auto res = Find(key);
+			node *x;
+			if (x = CheckFindRes(res)) return x->value->second;
+			else throw index_out_of_bound{};
+		}
+		/**
+		* return a iterator to the beginning
+		*/
+		iterator begin() const {
+			return iterator(head->succ);
+		}
+
+		const_iterator cbegin() const {
+			return const_iterator(head->succ);
+		}
+
+		/**
+		* return a iterator to the end
+		* in fact, it returns past-the-end.
+		*/
+		iterator end() {
+			return iterator(tail);
+		}
+		const_iterator cend() const {
+			return const_iterator(tail);
+		}
+		/**
+		* checks whether the container is empty
+		* return true if empty, otherwise false.
+		*/
+		bool empty() const {
+			return curSize == 0;
+		}
+		/**
+		* returns the number of elements.
+		*/
+		size_t size() const {
+			return curSize;
+		}
+		/**
+		* clears the contents
+		*/
+		void clear() {
+			Clear(root);
+			root = NULL;
+			head->succ = tail;
+			tail->prev = head;
+			curSize = 0;
+		}
+		/**
+		* insert an element.
+		* return a pair, the first of the pair is
+		*   the iterator to the new element (or the element that prevented the insertion),
+		*   the second one is true if insert successfully, or false.
+		*/
+		pair<iterator, bool> insert(const value_type &value) {
+			auto p = Find(value.first);
+			node *y = p.first, *x;
+			bool b = p.second;
+
+			if (x = CheckFindRes(p)) return { iterator(x), false };
+
+			++curSize;
+
+			x = new node(value, NULL, NULL, y, R);
+			if (y == NULL) {
+				root = x;
+				UpdateLink(x, head, tail);
+			}
+			else {
+				y->ch[b] = x;
+				if (!b) {
+					UpdateLink(x, y->prev, y);
+				}
+				else {
+					UpdateLink(x, y, y->succ);
+				}
+			}
+
+			InsertFixUp(x);
+			return { iterator(x), true };
+		}
+		/**
+		* erase the element at pos.
+		*
+		* throw if pos pointed to a bad element (pos == this->end() || pos points an element out of this)
+		*/
+		void erase(iterator pos) {
+			if (pos == end() || pos.p == NULL) throw invalid_iterator{};
+			auto res = Find(pos->first);
+			if (!res.first && root != pos.p || res.first &&
+				pos.p != res.first->ch[res.second]) throw invalid_iterator{};
+			--curSize;
+			int referCol;
+			node *a = pos.p;
+			node *pnta = a->pnt, *cha[2] = { a->ch[0], a->ch[1] }, *x;
+
+			UpdateLink(a->prev, a->prev->prev, a->succ);
+			UpdateLink(a->succ, a->prev, a->succ->succ);
+			if (!cha[0] || !cha[1]) {
+				referCol = a->color;
+				x = cha[0] ? cha[0] : cha[1];
+				MatchPntChild(pnta, x, pnta ? (pnta->ch[1] == a) : -1);
+				if (referCol == B) DeleteFixUp(x, pnta);
+				delete a;
+			}
+			else {
+				node *b = a->succ;
+				node *pntb = b->pnt, *chb[2] = { b->ch[0], b->ch[1] };
+				referCol = b->color;
+				b->color = a->color;
+				if (b == cha[1]) {
+					MatchPntChild(pnta, b, pnta ? (pnta->ch[1] == a) : -1);
+					MatchPntChild(b, cha[0], 0);
+					x = chb[1];
+					if (referCol == B) DeleteFixUp(x, b);
+					delete a;
+				}
+				else {
+					x = chb[0] ? chb[0] : chb[1];
+					MatchPntChild(pnta, b, pnta ? (pnta->ch[1] == a) : -1);
+					MatchPntChild(pntb, x, pntb->ch[1] == b);
+					MatchPntChild(b, cha[0], 0);
+					MatchPntChild(b, cha[1], 1);
+					MatchPntChild(pntb, x, pntb->ch[1] == b);
+					if (referCol == B) DeleteFixUp(x, pntb);
+					delete a;
+				}
+			}
+		}
+		/**
+		* Returns the number of elements with key
+		*   that compares equivalent to the specified argument,
+		*   which is either 1 or 0
+		*     since this container does not allow duplicates.
+		* The default method of check the equivalence is !(a < b || b > a)
+		*/
+		size_t count(const Key &key) const {
+			auto res = Find(key);
+			node *x;
+			if (x = CheckFindRes(res)) return 1;
+			else return 0;
+		}
+		/**
+		* Finds an element with key equivalent to key.
+		* key value of the element to search for.
+		* Iterator to an element with key equivalent to key.
+		*   If no such element is found, past-the-end (see end()) iterator is returned.
+		*/
+		iterator find(const Key &key) {
+			auto res = Find(key);
+			node *x;
+			if (x = CheckFindRes(res)) return iterator(x);
+			else return end();
+		}
+		const_iterator find(const Key &key) const {
+			auto res = Find(key);
+			node *x;
+			if (x = CheckFindRes(res)) return const_iterator(x);
+			else return cend();
+		}
+	};
+
+}
+
+#endif

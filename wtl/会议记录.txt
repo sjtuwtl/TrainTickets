@@ -1,0 +1,13 @@
+1.存树的时候把id包成一个myint类。
+2.所有的文件第一位记录的都是类型为size_t的内容数目。
+3.printtrain没写。
+4.modifyticket里
+5.Enquiry多一个括号
+6.调Train里的东西写一个函数
+7.insert改total
+8.insert拆2个，一个只改map不改文件，原来那个要改名字
+9.n^2erase；
+erase中用最后的一个填上空白。
+第一个数字--。
+10.Train类讨论是否开售
+11.changeTrain和zlz讨论
